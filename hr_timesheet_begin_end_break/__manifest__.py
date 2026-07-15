@@ -1,16 +1,14 @@
-# Copyright 2025 S.S.
+# Copyright 2025 Slivi-sliv
 # License AGPL-3 - See http://www.gnu.org/licenses/agpl-3.0.html
 
 {
     "name": "Timesheet - Begin/End Hours + Break",
-    "version": "18.0.1.0.0",
-    "author": "S.S., Odoo Community Association (OCA)",
+    "version": "19.0.1.0.0",
+    "author": "Slivi-sliv, Odoo Community Association (OCA)",
     "license": "AGPL-3",
-    "category": "Services/Timesheet",
+    "category": "Human Resources",
     "depends": [
-        "hr_timesheet",
         "hr_timesheet_begin_end",
-        "project",
     ],
     "website": "https://github.com/OCA/timesheet",
     "data": [
