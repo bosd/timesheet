@@ -1,6 +1,10 @@
-from odoo import _, api, fields, models
-from odoo.exceptions import ValidationError
-from odoo.tools import float_compare
+# Copyright 2025 Slivi-sliv
+# License AGPL-3 - See http://www.gnu.org/licenses/agpl-3.0.html
+
+from datetime import timedelta
+
+from odoo import api, exceptions, fields, models
+from odoo.tools.float_utils import float_compare
 
 
 class AccountAnalyticLine(models.Model):
@@ -12,8 +16,11 @@ class AccountAnalyticLine(models.Model):
     def onchange_hours_start_stop(self):
         res = super().onchange_hours_start_stop()
         if self.time_start and self.time_stop:
-            # Re-calculate unit_amount to include break
-            self.unit_amount = self.time_stop - self.time_start - self.break_duration
+            # Re-compute the worked amount so that the break is deducted.
+            start = timedelta(hours=self.time_start)
+            stop = timedelta(hours=self.time_stop)
+            if stop >= start:
+                self.unit_amount = (stop - start).seconds / 3600 - self.break_duration
         return res
 
     @api.constrains("time_start", "time_stop", "unit_amount", "break_duration")
@@ -22,52 +29,56 @@ class AccountAnalyticLine(models.Model):
         # constraint of the same name: the base enforces
         # ``unit_amount == time_stop - time_start``, which is always false once a
         # break is deducted. We therefore re-check start/stop order and overlap
-        # here as well, adding ``break_duration`` to the duration expectation.
+        # here as well, mirroring the base implementation, and add
+        # ``break_duration`` to the duration expectation.
+        rounding = self.env.ref("uom.product_uom_hour").rounding
+        value_to_html = self.env["ir.qweb.field.float_time"].value_to_html
         for line in self:
             if not line.time_start and not line.time_stop:
                 continue
-
-            # 1. Check if start is before end (Standard check)
-            if line.time_start > line.time_stop:
-                raise ValidationError(_("The start hour must be before the end hour."))
-
-            # 2. Check for overlaps (Copied from base to ensure it still works)
-            domain = [
-                ("id", "!=", line.id),
-                ("employee_id", "=", line.employee_id.id),
-                ("date", "=", line.date),
-                "|",
-                "|",
-                "&",
-                ("time_start", "<=", line.time_start),
-                ("time_stop", ">", line.time_start),
-                "&",
-                ("time_start", "<", line.time_stop),
-                ("time_stop", ">=", line.time_stop),
-                "&",
-                ("time_start", ">=", line.time_start),
-                ("time_stop", "<=", line.time_stop),
-            ]
-            if self.search_count(domain):
-                raise ValidationError(_("You cannot have an overlap of timesheets."))
-
-            # 3. Check duration with break (The core of this module)
-            expected_amount = line.time_stop - line.time_start - line.break_duration
-            if (
-                float_compare(line.unit_amount, expected_amount, precision_digits=2)
-                != 0
-            ):
-
-                def float_to_time(f):
-                    return "%02d:%02d" % (int(f), int(round((f - int(f)) * 60)))
-
-                raise ValidationError(
-                    _(
-                        "The duration (%(duration)s) must be equal to the "
-                        "difference between the hours minus break (%(expected)s)."
+            start = timedelta(hours=line.time_start)
+            stop = timedelta(hours=line.time_stop)
+            if stop < start:
+                raise exceptions.ValidationError(
+                    self.env._(
+                        "The beginning hour (%(html_start)s) must "
+                        "precede the ending hour (%(html_stop)s).",
+                        html_start=value_to_html(line.time_start, None),
+                        html_stop=value_to_html(line.time_stop, None),
                     )
-                    % {
-                        "duration": float_to_time(line.unit_amount),
-                        "expected": float_to_time(expected_amount),
-                    }
                 )
+            hours = (stop - start).seconds / 3600 - line.break_duration
+            if hours and float_compare(
+                hours, line.unit_amount, precision_rounding=rounding
+            ):
+                raise exceptions.ValidationError(
+                    self.env._(
+                        "The duration (%(html_unit_amount)s) must be equal to the "
+                        "difference between the hours minus the break "
+                        "(%(html_hours)s).",
+                        html_unit_amount=value_to_html(line.unit_amount, None),
+                        html_hours=value_to_html(hours, None),
+                    )
+                )
+            # check if lines overlap
+            others = self.search(
+                [
+                    ("id", "!=", line.id),
+                    ("employee_id", "=", line.employee_id.id),
+                    ("date", "=", line.date),
+                    ("time_start", "<", line.time_stop),
+                    ("time_stop", ">", line.time_start),
+                ]
+            )
+            if others:
+                message = self.env._("Lines can't overlap:\n")
+                message += "\n".join(
+                    [
+                        f"{value_to_html(other.time_start, None)} - "
+                        f"{value_to_html(other.time_stop, None)}"
+                        for other in (line + others).sorted(
+                            key=lambda item: item.time_start
+                        )
+                    ]
+                )
+                raise exceptions.ValidationError(message)
