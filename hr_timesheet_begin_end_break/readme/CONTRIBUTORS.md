@@ -1,0 +1,2 @@
+- Slivi-sliv \<<silvano999@gmail.com>\>
+- Stefano Consolaro ([Mymage](https://www.mymage.it))
