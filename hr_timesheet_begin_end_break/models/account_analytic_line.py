@@ -71,8 +71,7 @@ class AccountAnalyticLine(models.Model):
                 ]
             )
             if others:
-                message = self.env._("Lines can't overlap:\n")
-                message += "\n".join(
+                lines_str = "\n".join(
                     [
                         f"{value_to_html(other.time_start, None)} - "
                         f"{value_to_html(other.time_stop, None)}"
@@ -81,4 +80,6 @@ class AccountAnalyticLine(models.Model):
                         )
                     ]
                 )
-                raise exceptions.ValidationError(message)
+                raise exceptions.ValidationError(
+                    self.env._("Lines can't overlap:\n%s") % (lines_str,)
+                )
